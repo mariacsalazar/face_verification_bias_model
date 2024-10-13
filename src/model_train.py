@@ -12,8 +12,8 @@ num_epochs = 10
 embedding_size = 512     
 num_classes = 1001   # There are 10572 images in our folder (using a subset of 1001 imgs for now)          
 
-# Defining Transformations and Dataset
 def prepare_dataset(batch_size, num_workers=2):
+    '''Defining Transformations and Dataset'''
     # Using the transformations common to CASIA dataset
     transform = transforms.Compose([
         transforms.Resize((112, 112)),   
