@@ -4,6 +4,8 @@ import torch.optim as optim
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
+import os
+
 
 # Initializing Hyperparameters
 batch_size = 100         
@@ -20,8 +22,9 @@ def prepare_dataset(batch_size, num_workers=2):
         transforms.ToTensor(),           
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]) 
     ])
+    print(os.getcwd())
 
-    train_dataset = datasets.ImageFolder(root='small_images', transform=transform)
+    train_dataset = datasets.ImageFolder(root='data/train_set/small_images', transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     
     return train_loader
@@ -56,7 +59,7 @@ class ArcMarginProduct(nn.Module):
 class ResNet18ArcFace(nn.Module):
     def __init__(self, num_classes, feature_dim=512, use_arcface=True):
         super(ResNet18ArcFace, self).__init__()
-        self.backbone = models.resnet18(pretrained=True)
+        self.backbone = models.resnet18(pretrained=False)
         # Replacing the final fully connected layer of resnet18 with a custom one
         self.backbone.fc = nn.Linear(self.backbone.fc.in_features, feature_dim)
         
