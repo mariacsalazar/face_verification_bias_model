@@ -40,7 +40,7 @@ def split_folders(original_folder, target_folder, smaller_foldersize, trainperc,
     os.makedirs(test_folder, exist_ok=True)
     os.makedirs(val_folder, exist_ok=True)
 
-    # Get all class folders (0 to 10571 in your case)
+    # Get all class folders (0 to 10571 in our case)
     all_folders = [f for f in os.listdir(original_folder) if os.path.isdir(os.path.join(original_folder, f))]
     all_folders.sort()
 
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     target_folder = r'C:\Users\Hareem Raza\Documents\BDMA Sem3\BDRP\Models\testing'
 
     # Set smaller_foldersize and percentages for splitting
-    smaller_foldersize = 5
+    smaller_foldersize = 5 # Ensure it is between 0 to 10572 for our dataset
     trainperc = 0.8   
     testperc = 0.1    
     validationperc = 0.1  # In case you do not need a validation set, set it to 0
