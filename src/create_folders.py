@@ -92,9 +92,9 @@ if __name__ == "__main__":
     target_folder = r'C:\Users\Hareem Raza\Documents\BDMA Sem3\BDRP\Models\testing'
 
     # Set smaller_foldersize and percentages for splitting
-    smaller_foldersize = 5 # Ensure it is between 0 to 10572 for our dataset
-    trainperc = 0.8   
-    testperc = 0.1    
-    validationperc = 0.1  # In case you do not need a validation set, set it to 0
+    total_classes = 5 # Ensure it is between 0 to 10572 for our dataset
+    train_percentage = 0.8   
+    test_percentage = 0.1    
+    validation_percentage = 0.1  # In case you do not need a validation set, set it to 0
 
     split_folders(original_folder, target_folder, smaller_foldersize, trainperc, testperc, validationperc)
