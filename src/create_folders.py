@@ -6,7 +6,7 @@ from math import floor
 def copy_with_overwrite(src, dst):
     shutil.copy(src, dst)
 
-def split_folders(original_folder, target_folder, smaller_foldersize, trainperc, testperc, validationperc):
+def split_folders(original_folder, target_folder, smaller_foldersize, train_percentage, test_percentage, validation_percentage):
     """
     Splits a set of image folders into train, test, and validation sets based on the specified percentages.
     
@@ -14,9 +14,9 @@ def split_folders(original_folder, target_folder, smaller_foldersize, trainperc,
         original_folder (str): Path to the original folder containing all image folders.
         target_folder (str): Path to the target folder where train, test, and validation folders will be created.
         smaller_foldersize (int): The number of folders to be selected for splitting.
-        trainperc (float): Percentage of images to allocate to the train set.
-        testperc (float): Percentage of images to allocate to the test set.
-        validationperc (float): Percentage of images to allocate to the validation set.
+        train_percentage (float): Percentage of images to allocate to the train set.
+        test_percentage (float): Percentage of images to allocate to the test set.
+        validation_percentage (float): Percentage of images to allocate to the validation set.
     
     Raises:
         ValueError: If the percentages for train, test, and validation do not sum to 1.
@@ -27,8 +27,9 @@ def split_folders(original_folder, target_folder, smaller_foldersize, trainperc,
 
     os.makedirs(target_folder, exist_ok=True)
 
-    if (trainperc + testperc + validationperc) != 1:
-        raise ValueError("trainperc, testperc, and validationperc must sum to 1")
+    epsilon = 1e-9
+    if abs(train_percentage + test_percentage + validation_percentage - 1) > epsilon:
+        raise ValueError("Train, test, and validation percentage must sum to 1")
 
     # Create directories for train, test, validation
     train_folder = os.path.join(target_folder, "train")
@@ -56,8 +57,8 @@ def split_folders(original_folder, target_folder, smaller_foldersize, trainperc,
         random.shuffle(images)
 
         # Calculate number of images for train, test, validation based on percentages
-        train_count = floor(len(images) * trainperc)
-        test_count = floor(len(images) * testperc)
+        train_count = floor(len(images) * train_percentage)
+        test_count = floor(len(images) * test_percentage)
 
         train_images = images[:train_count]
         test_images = images[train_count:train_count + test_count]
@@ -87,9 +88,9 @@ def split_folders(original_folder, target_folder, smaller_foldersize, trainperc,
     print("Completed folder creation and test-train-validation split with {} classes.".format(smaller_foldersize))
 
 if __name__ == "__main__":
-    # Add folder paths of original imgs folder and smaller folder here.
-    original_folder = r'C:\Users\Hareem Raza\Documents\BDMA Sem3\BDRP\Models\imgs'
-    target_folder = r'C:\Users\Hareem Raza\Documents\BDMA Sem3\BDRP\Models\testing'
+    # Paths to 'imgs' and 'imgs_subset' folders in the parent directory
+    original_folder = os.path.abspath(os.path.join(os.getcwd(), os.pardir, 'imgs'))
+    target_folder = os.path.abspath(os.path.join(os.getcwd(), os.pardir, 'imgs_subset'))
 
     # Set smaller_foldersize and percentages for splitting
     total_classes = 5 # Ensure it is between 0 to 10572 for our dataset
@@ -97,4 +98,4 @@ if __name__ == "__main__":
     test_percentage = 0.1    
     validation_percentage = 0.1  # In case you do not need a validation set, set it to 0
 
-    split_folders(original_folder, target_folder, smaller_foldersize, trainperc, testperc, validationperc)
+    split_folders(original_folder, target_folder, total_classes, train_percentage, test_percentage, validation_percentage)
