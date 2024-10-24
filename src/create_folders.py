@@ -87,7 +87,7 @@ def split_folders(original_folder, target_folder, smaller_foldersize, train_perc
 
     print("Completed folder creation and test-train-validation split with {} classes.".format(smaller_foldersize))
 
-if __name__ == "__main__":
+def main():
     # Paths to 'imgs' and 'imgs_subset' folders in the parent directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     parent_dir = os.path.abspath(os.path.join(script_dir, os.pardir))
@@ -101,3 +101,6 @@ if __name__ == "__main__":
     validation_percentage = 0.1  # In case you do not need a validation set, set it to 0
 
     split_folders(original_folder, target_folder, total_classes, train_percentage, test_percentage, validation_percentage)
+
+if __name__ == "__main__":
+    main()

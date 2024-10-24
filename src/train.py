@@ -1,12 +1,9 @@
 import os
-import shutil
-import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
 from datetime import datetime
 from pathlib import Path
 
@@ -16,10 +13,8 @@ def get_accuracy(preds, y):
     Compute the accuracy
 
     """
-    
     m = y.shape[0]
     hard_preds = torch.argmax(preds, dim=1)
-
     
     accuracy = torch.sum(hard_preds == y).item() / m
     return accuracy
@@ -119,7 +114,7 @@ def evaluate_model(model, test_loader, loss_fn, device):
     total_test_samples = 0
 
     with torch.no_grad():
-        for batch_idx, (X_test, y_test) in enumerate(test_loader):
+        for X_test, y_test in test_loader:
             X_test, y_test = X_test.to(device), y_test.to(device)
 
             test_preds = model(X_test)
@@ -136,8 +131,18 @@ def evaluate_model(model, test_loader, loss_fn, device):
 
     return avg_test_loss, avg_test_accuracy
 
-def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, checkpoint_interval, test_interval, train_folder, test_folder):
+def make_checkpoint_dir():
+    today = datetime.now()
+    datestring = today.strftime("checkpoint/checkpoint_%Y_%m_%d__%H_%M_%S")
+
+    Path(datestring).mkdir(parents=True, exist_ok=True)
     
+    return datestring
+
+
+def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, checkpoint_interval, test_interval, train_folder, test_folder):
+    datestring = make_checkpoint_dir()
+
     train_loader, test_loader, num_classes = load_data(train_folder, test_folder, batch_size, num_workers)
     
     
@@ -154,21 +159,12 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
         train_loss.append(avg_train_loss)
         train_accuracy.append(avg_train_accuracy)
 
-        today = datetime.now()
-        datestring = today.strftime("checkpoints_%Y_%m_%d__%H")  
-
-
-
-        Path(datestring).mkdir(parents=True, exist_ok=True)
-        
-        checkpoints_dir = os.path.join(datestring, "checkpoints")
-        os.mkdir(checkpoints_dir)
 
            
         if num_epoch % checkpoint_interval == 0:
-            checkpoint_path = os.path.join(checkpoints_dir, f'model_checkpoint_epoch_{num_epoch}.pt')
-            torch.save(model.state_dict(), f'model_checkpoint_epoch_{num_epoch}.pt')
-            print(f'Checkpoint saved: model_epoch_{num_epoch}.pt')
+            checkpoint_path = f'{datestring}/checkpoint_epoch_{num_epoch}.pt'
+            torch.save(model.state_dict(), checkpoint_path)
+            print(f'Checkpoint saved as {checkpoint_path}')
 
     
         if num_epoch % test_interval == 0 or num_epoch == num_epochs:
@@ -177,24 +173,29 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
             test_accuracy.append(avg_test_accuracy)
             print(f'Test Loss: {avg_test_loss:.4f}, Test Accuracy: {avg_test_accuracy:.4f}')
 
-    checkpoint_path = os.path.join(checkpoints_dir, f'final_model.pt')
+    checkpoint_path = f'{datestring}/final_model.pt'
     torch.save(model.state_dict(),checkpoint_path)
-    print('Final model saved in "final_model.pt"')
+    print('Final model saved as "final_model.pt"')
 
     return train_loss, train_accuracy, test_loss, test_accuracy
 
+def main():
+    abspath = os.path.abspath(__file__)
+    dname = os.path.dirname(os.path.dirname(abspath))
+    print(dname)
+    os.chdir(dname)
+
+    train_and_save_model(
+    num_epochs=10, 
+    batch_size=64, 
+    learning_rate=0.001, 
+    num_workers=4, 
+    checkpoint_interval=1, 
+    test_interval=2, 
+    train_folder='data/imgs_subset/train', 
+    test_folder='data/imgs_subset/train')
+
+
+
 if __name__ == "__main__":
-       abspath = os.path.abspath(__file__)
-       dname = os.path.dirname(abspath)
-       os.chdir(dname)
-
-       train_loss, train_accuracy, test_loss, test_accuracy = train_and_save_model(
-        num_epochs=1, 
-        batch_size=64, 
-        learning_rate=0.001, 
-        num_workers=4, 
-        checkpoint_interval=5, 
-        test_interval=2, 
-        train_folder='../data/train', 
-        test_folder='../data/test')
-
+    main()
