@@ -89,8 +89,10 @@ def split_folders(original_folder, target_folder, smaller_foldersize, train_perc
 
 if __name__ == "__main__":
     # Paths to 'imgs' and 'imgs_subset' folders in the parent directory
-    original_folder = os.path.abspath(os.path.join(os.getcwd(), os.pardir, 'imgs'))
-    target_folder = os.path.abspath(os.path.join(os.getcwd(), os.pardir, 'imgs_subset'))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.abspath(os.path.join(script_dir, os.pardir))
+    original_folder = os.path.join(parent_dir, 'data/imgs')
+    target_folder = os.path.join(parent_dir, 'data/imgs_subset')
 
     # Set smaller_foldersize and percentages for splitting
     total_classes = 5 # Ensure it is between 0 to 10572 for our dataset
