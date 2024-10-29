@@ -6,6 +6,7 @@ from sklearn.model_selection import KFold
 import numpy as np
 from sklearn.metrics import roc_curve
 from PIL import Image
+from tqdm import tqdm
 import os
 
 
@@ -37,21 +38,23 @@ def get_different_pair_distances(validation_folder, transform, model, n):
 	distances = []
 	cnt = 0
 	seen_pairs = set()
+	print('Getting different pair distances')
+	with tqdm(total=n) as pbar:
+		while cnt < n:
+			# Select two random images
+			image_path_1, class_1 = get_random_image(classes, validation_folder)
+			image_path_2, class_2 = get_random_image(classes, validation_folder)
+			# Check that the classes are different
+			if class_1 == class_2 or (image_path_1, image_path_2) in seen_pairs:
+				continue
+			seen_pairs.add((image_path_1, image_path_2))
+			seen_pairs.add((image_path_2, image_path_1))
 
-	while cnt < n:
-		# Select two random images
-		image_path_1, class_1 = get_random_image(classes, validation_folder)
-		image_path_2, class_2 = get_random_image(classes, validation_folder)
-		# Check that the classes are different
-		if class_1 == class_2 or (image_path_1, image_path_2) in seen_pairs:
-			continue
-		seen_pairs.add((image_path_1, image_path_2))
-		seen_pairs.add((image_path_2, image_path_1))
-
-		embedding_1 = get_embedding(image_path_1, transform, model)
-		embedding_2 = get_embedding(image_path_2, transform, model)
-		distances.append(l2_distance_torch(embedding_1, embedding_2))
-		cnt += 1
+			embedding_1 = get_embedding(image_path_1, transform, model)
+			embedding_2 = get_embedding(image_path_2, transform, model)
+			distances.append(l2_distance_torch(embedding_1, embedding_2))
+			cnt += 1
+			pbar.update(1)
 	return distances
 
 def get_same_pair_distances(validation_folder, transform, model, n):
@@ -60,21 +63,24 @@ def get_same_pair_distances(validation_folder, transform, model, n):
 	cnt = 0
 	seen_pairs = set()
 
-	while cnt < n:
-		image_path_1, class_1 = get_random_image(classes, validation_folder)
-		image_path_2 = get_random_image_from_class(os.path.join(validation_folder, class_1))
+	print('Getting same pair distances')
+	with tqdm(total=n) as pbar:
+		while cnt < n:
+			image_path_1, class_1 = get_random_image(classes, validation_folder)
+			image_path_2 = get_random_image_from_class(os.path.join(validation_folder, class_1))
 
-		# Check the images are different
-		if (image_path_1, image_path_2) in seen_pairs or image_path_1 == image_path_2:
-			continue
-		seen_pairs.add((image_path_1, image_path_2))
-		seen_pairs.add((image_path_2, image_path_1))
+			# Check the images are different
+			if (image_path_1, image_path_2) in seen_pairs or image_path_1 == image_path_2:
+				continue
+			seen_pairs.add((image_path_1, image_path_2))
+			seen_pairs.add((image_path_2, image_path_1))
 
-		embedding_1 = get_embedding(image_path_1, transform, model)
-		embedding_2 = get_embedding(image_path_2, transform, model)
+			embedding_1 = get_embedding(image_path_1, transform, model)
+			embedding_2 = get_embedding(image_path_2, transform, model)
 
-		distances.append(l2_distance_torch(embedding_1, embedding_2))
-		cnt += 1
+			distances.append(l2_distance_torch(embedding_1, embedding_2))
+			cnt += 1
+			pbar.update(1)
 	return distances
 
 
