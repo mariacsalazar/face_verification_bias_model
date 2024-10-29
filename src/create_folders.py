@@ -6,6 +6,18 @@ from math import floor
 def copy_with_overwrite(src, dst):
     shutil.copy(src, dst)
 
+def check_empty_folders(parent_folder):
+    for img_num_folder in os.listdir(parent_folder):
+        img_num_folder_path = os.path.join(parent_folder, img_num_folder)
+
+        # Check if it is a directory and contains no files
+        if os.path.isdir(img_num_folder_path):
+            # List all files (not subdirectories) in the current img_num_folder
+            files = [f for f in os.listdir(img_num_folder_path) if os.path.isfile(os.path.join(img_num_folder_path, f))]
+                
+            if not files:  # No files found in img_num_folder
+                print(f"Empty folder: {img_num_folder_path}")
+
 def split_folders(original_folder, target_folder, smaller_foldersize, train_percentage, test_percentage, validation_percentage):
     """
     Splits a set of image folders into train, test, and validation sets based on the specified percentages.
@@ -49,6 +61,7 @@ def split_folders(original_folder, target_folder, smaller_foldersize, train_perc
     selected_folders = random.sample(all_folders, smaller_foldersize)
 
     # Copy images into train, test, and validation for all selected folders
+    '''
     for folder in selected_folders:
         folder_path = os.path.join(original_folder, folder)
         images = os.listdir(folder_path)
@@ -63,6 +76,36 @@ def split_folders(original_folder, target_folder, smaller_foldersize, train_perc
         train_images = images[:train_count]
         test_images = images[train_count:train_count + test_count]
         val_images = images[train_count + test_count:]
+    '''
+
+    for folder in selected_folders:
+        folder_path = os.path.join(original_folder, folder)
+        images = os.listdir(folder_path)
+        random.shuffle(images)
+        
+        # Calculate the number of images for each set based on percentages
+        num_images = len(images)
+
+        if num_images >= 3:
+            # Ensure each set has at least one image
+            train_count = max(1, floor(num_images * train_percentage))
+            test_count = max(1, floor(num_images * test_percentage))
+            validation_count = max(1, num_images - train_count - test_count)
+
+            # Adjust if the sum exceeds the total number of images
+            if train_count + test_count + validation_count > num_images:
+                # Reduce train_count if necessary to balance
+                train_count = num_images - test_count - validation_count
+        else:
+            # If fewer than 3 images, prioritize train set, then test, then validation
+            train_count = 1
+            test_count = 1 if num_images > 1 else 0
+            validation_count = 1 if num_images > 2 else 0
+
+        # Assign images to train, test, and validation
+        train_images = images[:train_count]
+        test_images = images[train_count:train_count + test_count]
+        val_images = images[train_count + test_count:train_count + test_count + validation_count]
 
         # Create folder structure in train, test, validation
         os.makedirs(os.path.join(train_folder, folder), exist_ok=True)
@@ -86,6 +129,11 @@ def split_folders(original_folder, target_folder, smaller_foldersize, train_perc
             copy_with_overwrite(src, dst)
 
     print("Completed folder creation and test-train-validation split with {} classes.".format(smaller_foldersize))
+        
+    check_empty_folders(train_folder)
+    check_empty_folders(test_folder)
+    check_empty_folders(val_folder)
+
 
 def main():
     # Paths to 'imgs' and 'imgs_subset' folders in the parent directory
@@ -95,7 +143,7 @@ def main():
     target_folder = os.path.join(parent_dir, 'data/imgs_subset')
 
     # Set smaller_foldersize and percentages for splitting
-    total_classes = 5 # Ensure it is between 0 to 10572 for our dataset
+    total_classes = 500 # Ensure it is between 0 to 10572 for our dataset
     train_percentage = 0.8   
     test_percentage = 0.1    
     validation_percentage = 0.1  # In case you do not need a validation set, set it to 0
