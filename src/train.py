@@ -138,9 +138,7 @@ def train_one_epoch(epoch,model, train_loader, optimizer, loss_fn, device):
         prediction_loss = torch.sum((predicted_loss - forward_pass_loss.item())**2)
         
         # TODO add a lambda here
-        total_loss = forward_pass_loss + prediction_loss
-        
-
+        total_loss = forward_pass_loss + 0.01 * prediction_loss
 
         optimizer.zero_grad()
         total_loss.backward()
