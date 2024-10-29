@@ -146,6 +146,7 @@ def calculate_kfold_accuracy(distances, ground_truth):
 	return np.mean(accuracies)
 
 def main():
+	np.random.seed(88)
 	model_path = 'checkpoint/checkpoint_2024_10_28__19_52_56_simple_epoch_10/final_model.pt'
 	model = load_model_from_checkpoint(model_path)
 	validation_folder = 'data/imgs_subset/validation'
