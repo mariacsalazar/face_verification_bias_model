@@ -182,7 +182,6 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
 def main():
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(os.path.dirname(abspath))
-    print(dname)
     os.chdir(dname)
 
     train_and_save_model(
