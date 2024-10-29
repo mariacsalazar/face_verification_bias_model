@@ -1,14 +1,9 @@
 
 import torch
-import torchvision
 import torch.nn as nn
-from torchvision import datasets, transforms, models
+from torchvision import transforms, models
 from sklearn.model_selection import KFold
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-from tqdm import trange, tqdm
-import pandas as pd
 from sklearn.metrics import roc_curve
 from PIL import Image
 import os
