@@ -83,12 +83,25 @@ def resnet18(num_classes=1000):
 
 
 def get_accuracy(preds, y):
+    """
+    Compute the accuracy
+
+    """
     m = y.shape[0]
     hard_preds = torch.argmax(preds, dim=1)
+    
     accuracy = torch.sum(hard_preds == y).item() / m
     return accuracy
 
 def load_data(train_folder, test_folder, batch_size, num_workers):
+    """
+    Loads and preprocesses the training and testing datasets
+    from the specified folders. It applies transformations to resize the images,
+    convert them to tensors, and normalize the pixel values.
+     
+    It returns DataLoader objects for both datasets to facilitate mini-batch 
+    processing during training and evaluation.
+    """
     transform = transforms.Compose([
         transforms.Resize((112, 112)),
         transforms.ToTensor(),
@@ -123,6 +136,13 @@ def initialize_model(num_classes, learning_rate):
     return model, optimizer, loss_fn, device
 
 def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device):
+
+    """
+    Train the model for one epoch. It iterates over the
+    mini-batches in the training data, performs forward and backward passes,
+    updates the model weights using the optimizer, and calculates the loss and
+    accuracy for each batch. It returns the average loss and accuracy over the entire epoch.
+    """
     model.train()
     epoch_train_loss, epoch_train_acc = 0.0, 0.0
 
@@ -151,6 +171,13 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device):
     return avg_train_loss, avg_train_accuracy
 
 def evaluate_model(model, test_loader, loss_fn, device):
+    """
+    Evaluate the trained model on the test dataset. It calculates
+    the loss and accuracy for each mini-batch of the test data but 
+    without updating the model weights (no gradient calculation). 
+    It returns the average loss and accuracy for the entire test dataset.
+
+    """
     model.eval()
     epoch_test_loss, epoch_test_acc = 0.0, 0.0
     total_test_samples = 0
