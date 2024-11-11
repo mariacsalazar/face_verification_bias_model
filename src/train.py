@@ -7,6 +7,57 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 from pathlib import Path
 
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+        
+    def forward(self, x):
+        return x
+
+class BiasModel():
+    def __init__(self, num_classes):
+        self.model_embeddings, self.model_classifier, self.model_bias = self._initialize_models(num_classes)
+
+    def _initialize_models(self, num_classes):
+        model_embeddings = models.resnet18(num_classes=num_classes)
+        model_embeddings.fc = Identity()
+        model_classifier = nn.Sequential(
+            nn.Linear(512, num_classes, bias=True)
+        )
+        model_bias = nn.Sequential(
+            nn.Linear(512, 1, bias=True)
+        )
+        return model_embeddings, model_classifier, model_bias
+    
+
+    def get_models(self):
+        return self.model_embeddings, self.model_classifier, self.model_bias
+    
+    def get_parameters(self):
+        return list(self.model_embeddings.parameters()) \
+            + list(self.model_classifier.parameters()) \
+            + list(self.model_bias.parameters())
+    
+    def train(self):
+        self.model_embeddings.train()
+        self.model_classifier.train()
+        self.model_bias.train()
+    
+    def eval(self):
+        self.model_embeddings.eval()
+        self.model_classifier.eval()
+        self.model_bias.eval()
+    
+    def save(self, path):
+        torch.save(self.model_bias.state_dict(), path + '_bias.pt')
+        torch.save(self.model_classifier.state_dict(), path + '_classifier.pt')
+        torch.save(self.model_embeddings.state_dict(), path + '_embeddings.pt')
+    
+    def to(self, device):
+        self.model_embeddings.to(device)
+        self.model_classifier.to(device)
+        self.model_bias.to(device)
+    
 
 def get_accuracy(preds, y):
     """
@@ -54,12 +105,12 @@ def initialize_model(num_classes, learning_rate):
 
     """
       
-    model = models.resnet18(num_classes=num_classes)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    model = BiasModel(num_classes)
+    optimizer = optim.Adam(model.get_parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
+    model.to(device)
     loss_fn = loss_fn.to(device)
     print("initiated model")
     return model, optimizer, loss_fn, device
@@ -80,20 +131,26 @@ def train_one_epoch(epoch,model, train_loader, optimizer, loss_fn, device):
         X, y = X.to(device), y.to(device)
 
         # Forward pass
-        train_preds = model(X)
-        loss = loss_fn(train_preds, y)
+        embeddings = model.model_embeddings(X)
+        train_preds = model.model_classifier(embeddings)
+        forward_pass_loss = loss_fn(train_preds, y)
+        predicted_loss = model.model_bias(embeddings)
+        prediction_loss = torch.sum((predicted_loss - forward_pass_loss.item())**2)
+        
+        # TODO add a lambda here
+        total_loss = forward_pass_loss + 0.01 * prediction_loss
 
         optimizer.zero_grad()
-        loss.backward()
+        total_loss.backward()
         optimizer.step()
 
         # Compute accuracy
         accuracy = get_accuracy(train_preds, y)
-        epoch_train_loss += loss.item()
+        epoch_train_loss += total_loss.item()
         epoch_train_acc += accuracy
 
         # Print results per batch
-        print(f"Epoch {epoch},Batch [{batch_idx + 1}/{len(train_loader)}] - Loss: {loss.item():.4f}, Accuracy: {accuracy:.4f}")
+        print(f"Epoch {epoch},Batch [{batch_idx + 1}/{len(train_loader)}] - Loss: {total_loss.item():.4f}, Accuracy: {accuracy:.4f}")
 
     avg_train_loss = epoch_train_loss / len(train_loader)
     avg_train_accuracy = epoch_train_acc / len(train_loader)
@@ -117,7 +174,8 @@ def evaluate_model(model, test_loader, loss_fn, device):
         for X_test, y_test in test_loader:
             X_test, y_test = X_test.to(device), y_test.to(device)
 
-            test_preds = model(X_test)
+            test_embeddings = model.model_embeddings(X_test)
+            test_preds = model.model_classifier(test_embeddings)
             loss_test = loss_fn(test_preds, y_test)
 
             accuracy_test = get_accuracy(test_preds, y_test)
@@ -162,8 +220,8 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
 
            
         if num_epoch % checkpoint_interval == 0:
-            checkpoint_path = f'{datestring}/checkpoint_epoch_{num_epoch}.pt'
-            torch.save(model.state_dict(), checkpoint_path)
+            checkpoint_path = f'{datestring}/checkpoint_epoch_{num_epoch}'
+            model.save(checkpoint_path)
             print(f'Checkpoint saved as {checkpoint_path}')
 
     
@@ -173,8 +231,8 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
             test_accuracy.append(avg_test_accuracy)
             print(f'Test Loss: {avg_test_loss:.4f}, Test Accuracy: {avg_test_accuracy:.4f}')
 
-    checkpoint_path = f'{datestring}/final_model.pt'
-    torch.save(model.state_dict(),checkpoint_path)
+    checkpoint_path = f'{datestring}/final_model'
+    model.save(checkpoint_path)
     print('Final model saved as "final_model.pt"')
 
     return train_loss, train_accuracy, test_loss, test_accuracy
