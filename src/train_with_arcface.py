@@ -198,8 +198,8 @@ def main():
         num_workers=4, 
         checkpoint_interval=1, 
         test_interval=2, 
-        train_folder='data/imgs/train', 
-        test_folder='data/imgs/test'
+        train_folder='data/imgs_subset/train', 
+        test_folder='data/imgs_subset/test'
     )
 
 if __name__ == "__main__":
