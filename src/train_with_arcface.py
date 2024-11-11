@@ -170,6 +170,7 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
     for num_epoch in range(1, num_epochs + 1):
         print(f"\n--- Epoch {num_epoch}/{num_epochs} ---")
         avg_train_loss, avg_train_accuracy = train_one_epoch(num_epoch, model, train_loader, optimizer, arcface_loss, device)
+        print(f'Train Loss: {avg_train_loss:.4f}, Train Accuracy: {avg_train_accuracy:.4f}')
 
         if num_epoch % checkpoint_interval == 0:
             checkpoint_path = f'{datestring}/checkpoint_epoch_{num_epoch}.pt'
