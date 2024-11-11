@@ -6,7 +6,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from datetime import datetime
 from pathlib import Path
-from iresnet import *
+from iresnet import iresnet18
 
 def get_accuracy(preds, y):
     """
