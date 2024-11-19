@@ -1,13 +1,68 @@
 import os
+import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from datetime import datetime
 from pathlib import Path
 from iresnet import iresnet18
 
+# RenNet Model Definition
+class IResNetModified(nn.Module):
+    def __init__(self):
+        super(IResNetModified, self).__init__()
+        self.base_model = iresnet18(pretrained=False, progress=True) 
+        # Remove the fully connected layer for a 512-dimensional embedding
+        self.base_model.fc = nn.Identity()
+        self.base_model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+
+    def forward(self, x):
+        x = self.base_model.conv1(x)
+        x = self.base_model.bn1(x)
+        x = self.base_model.prelu(x)
+        x = self.base_model.layer1(x)
+        x = self.base_model.layer2(x)
+        x = self.base_model.layer3(x)
+        x = self.base_model.layer4(x)
+        x = self.base_model.bn2(x)
+        x = self.base_model.avgpool(x)  # Output shape (batch_size, 512, 1, 1)
+        x = torch.flatten(x, 1)  # Flatten to shape (batch_size, 512)
+        x = self.base_model.features(x)
+        return x
+
+# ArcFace Loss Definition
+class ArcFace(torch.nn.Module):
+    def __init__(self, s=64.0, margin=0.5):
+        super(ArcFace, self).__init__()
+        self.s = s
+        self.margin = margin
+        self.cos_m = math.cos(margin)
+        self.sin_m = math.sin(margin)
+
+    def forward(self, embeddings, labels, W):
+        # Normalize embeddings and the classifier weights
+        embeddings = F.normalize(embeddings, p=2, dim=1)
+        W = F.normalize(W, p=2, dim=0)
+
+        # Transpose W to align dimensions for matrix multiplication
+        cosine = torch.matmul(embeddings, W.t())
+
+        # Compute sine and phi for ArcFace margin
+        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
+        phi = cosine * self.cos_m - sine * self.sin_m
+
+        # Apply margin for the target class
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, labels.view(-1, 1), 1)
+        logits = one_hot * phi + (1.0 - one_hot) * cosine
+        logits *= self.s
+        return logits
+
+
+# Utilities
 def get_accuracy(preds, y):
     """
     Compute the accuracy
@@ -15,7 +70,6 @@ def get_accuracy(preds, y):
     """
     m = y.shape[0]
     hard_preds = torch.argmax(preds, dim=1)
-    
     accuracy = torch.sum(hard_preds == y).item() / m
     return accuracy
 
@@ -44,67 +98,66 @@ def load_data(train_folder, test_folder, batch_size, num_workers):
     print("Data loaded")
     return train_loader, test_loader, num_classes
 
-
-def initialize_model(num_classes, learning_rate):
+def initialize_model(num_classes, learning_rate, use_arcface):
     """
     Initializes the ResNet18 model with ArcFace for the specified number of 
     output classes, along with the Adam optimizer.
     """
-    model =  iresnet18(pretrained=False, progress=True,) 
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    loss_fn = nn.CrossEntropyLoss()
+    if use_arcface:
+        model = IResNetModified()  
+        # Add classifier weight matrix W for ArcFace
+        model.classifier = nn.Linear(512, num_classes, bias=False)
+        loss_fn = ArcFace(s=64.0, margin=0.5) 
+    else:
+        model = iresnet18(pretrained=False, progress=True, num_features = num_classes)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
+        loss_fn = nn.CrossEntropyLoss()
 
+    # Optimizer setup
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Device setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
     loss_fn = loss_fn.to(device)
-    
-    print("Initiated Arcface model")
+
+    print(f"Initialized model with {'ArcFace' if use_arcface else 'CrossEntropy'} loss")
     return model, optimizer, loss_fn, device
 
-def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device):
-
-    """
-    Train the model for one epoch. It iterates over the
-    mini-batches in the training data, performs forward and backward passes,
-    updates the model weights using the optimizer, and calculates the loss and
-    accuracy for each batch. It returns the average loss and accuracy over the entire epoch.
-    """
+def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface):
     model.train()
     epoch_train_loss, epoch_train_acc = 0.0, 0.0
 
     for batch_idx, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
+        optimizer.zero_grad()
 
         # Forward pass
-        optimizer.zero_grad()
-        train_preds = model(X)
-        loss = loss_fn(train_preds, y)
+        embeddings = model(X) 
+        if use_arcface:
+            W = model.classifier.weight  
+            logits = loss_fn(embeddings, y, W)
+            loss = nn.CrossEntropyLoss()(logits, y)  # ArcFace requires CrossEntropy on logits
+        else:
+            logits = embeddings  # Direct logits for CrossEntropy
+            loss = loss_fn(logits, y)
 
-        
+        # Backward and optimize
         loss.backward()
         optimizer.step()
 
         # Compute accuracy
-        accuracy = get_accuracy(train_preds, y)
+        accuracy = get_accuracy(logits, y)
         epoch_train_loss += loss.item()
         epoch_train_acc += accuracy
 
-        # Print results per batch
         print(f"Epoch {epoch}, Batch [{batch_idx + 1}/{len(train_loader)}] - Loss: {loss.item():.4f}, Accuracy: {accuracy:.4f}")
 
     avg_train_loss = epoch_train_loss / len(train_loader)
     avg_train_accuracy = epoch_train_acc / len(train_loader)
-    
     return avg_train_loss, avg_train_accuracy
 
-def evaluate_model(model, test_loader, loss_fn, device):
-    """
-    Evaluate the trained model on the test dataset. It calculates
-    the loss and accuracy for each mini-batch of the test data but 
-    without updating the model weights (no gradient calculation). 
-    It returns the average loss and accuracy for the entire test dataset.
-
-    """
+def evaluate_model(model, test_loader, loss_fn, device, use_arcface):
     model.eval()
     epoch_test_loss, epoch_test_acc = 0.0, 0.0
     total_test_samples = 0
@@ -113,10 +166,18 @@ def evaluate_model(model, test_loader, loss_fn, device):
         for X_test, y_test in test_loader:
             X_test, y_test = X_test.to(device), y_test.to(device)
 
-            test_preds = model(X_test)
-            loss_test = loss_fn(test_preds, y_test)
+            # Forward pass
+            embeddings = model(X_test)  # Always compute embeddings
+            if use_arcface:
+                W = model.classifier.weight  # Only for ArcFace
+                logits = loss_fn(embeddings, y_test, W)
+                loss_test = nn.CrossEntropyLoss()(logits, y_test)  # ArcFace requires CrossEntropy on logits
+            else:
+                logits = embeddings  # Direct logits for CrossEntropy
+                loss_test = loss_fn(logits, y_test)
 
-            accuracy_test = get_accuracy(test_preds, y_test)
+            # Compute accuracy
+            accuracy_test = get_accuracy(logits, y_test)
 
             epoch_test_loss += loss_test.item() * X_test.size(0)
             epoch_test_acc += accuracy_test * X_test.size(0)
@@ -124,7 +185,6 @@ def evaluate_model(model, test_loader, loss_fn, device):
 
     avg_test_loss = epoch_test_loss / total_test_samples
     avg_test_accuracy = epoch_test_acc / total_test_samples
-
     return avg_test_loss, avg_test_accuracy
 
 def make_checkpoint_dir():
@@ -133,27 +193,27 @@ def make_checkpoint_dir():
     Path(datestring).mkdir(parents=True, exist_ok=True)
     return datestring
 
-def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, checkpoint_interval, test_interval, train_folder, test_folder):
+# Main Training Loop
+def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, checkpoint_interval, test_interval, train_folder, test_folder, use_arcface):
     datestring = make_checkpoint_dir()
     train_loader, test_loader, num_classes = load_data(train_folder, test_folder, batch_size, num_workers)
-    model, optimizer, loss_fn, device = initialize_model(num_classes, learning_rate)
-    
+    model, optimizer, loss_fn, device = initialize_model(num_classes, learning_rate, use_arcface)
+
     train_loss, train_accuracy, test_loss, test_accuracy = [], [], [], []
 
-    for num_epoch in range(1, num_epochs + 1):
-        print(f"\n--- Epoch {num_epoch}/{num_epochs} ---")
-        
-        avg_train_loss, avg_train_accuracy = train_one_epoch(num_epoch, model, train_loader, optimizer, loss_fn, device)
+    for epoch in range(1, num_epochs + 1):
+        print(f"\n--- Epoch {epoch}/{num_epochs} ---")
+        avg_train_loss, avg_train_accuracy = train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface)
         train_loss.append(avg_train_loss)
         train_accuracy.append(avg_train_accuracy)
 
-        if num_epoch % checkpoint_interval == 0:
-            checkpoint_path = f'{datestring}/checkpoint_epoch_{num_epoch}.pt'
+        if epoch % checkpoint_interval == 0:
+            checkpoint_path = f'{datestring}/checkpoint_epoch_{epoch}.pt'
             torch.save(model.state_dict(), checkpoint_path)
             print(f'Checkpoint saved as {checkpoint_path}')
 
-        if num_epoch % test_interval == 0 or num_epoch == num_epochs:
-            avg_test_loss, avg_test_accuracy = evaluate_model(model, test_loader, loss_fn, device)
+        if epoch % test_interval == 0 or epoch == num_epochs:
+            avg_test_loss, avg_test_accuracy = evaluate_model(model, test_loader, loss_fn, device, use_arcface)
             test_loss.append(avg_test_loss)
             test_accuracy.append(avg_test_accuracy)
             print(f'Test Loss: {avg_test_loss:.4f}, Test Accuracy: {avg_test_accuracy:.4f}')
@@ -162,23 +222,22 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
     torch.save(model.state_dict(), checkpoint_path)
     print('Final model saved as "final_model.pt"')
 
-    return train_loss, train_accuracy, test_loss, test_accuracy
-
 def main():
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(os.path.dirname(abspath))
-    print(dname)
     os.chdir(dname)
 
+    use_arcface = True  # Toggle this for CrossEntropy or ArcFace
     train_and_save_model(
-        num_epochs=100, 
-        batch_size=64, 
-        learning_rate=0.001, 
-        num_workers=4, 
-        checkpoint_interval=1, 
-        test_interval=2, 
+        num_epochs=100,
+        batch_size=64,
+        learning_rate=0.001,
+        num_workers=4,
+        checkpoint_interval=1,
+        test_interval=2,
         train_folder='data/imgs_subset/train', 
-        test_folder='data/imgs_subset/train'
+        test_folder='data/imgs_subset/test',
+        use_arcface=use_arcface
     )
 
 if __name__ == "__main__":
