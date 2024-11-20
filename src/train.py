@@ -10,57 +10,34 @@ from datetime import datetime
 from pathlib import Path
 from iresnet import iresnet18
 
-# RenNet Model Definition
-class IResNetModified(nn.Module):
-    def __init__(self):
-        super(IResNetModified, self).__init__()
-        self.base_model = iresnet18(pretrained=False, progress=True) 
-        # Remove the fully connected layer for a 512-dimensional embedding
-        self.base_model.fc = nn.Identity()
-        self.base_model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
-    def forward(self, x):
-        x = self.base_model.conv1(x)
-        x = self.base_model.bn1(x)
-        x = self.base_model.prelu(x)
-        x = self.base_model.layer1(x)
-        x = self.base_model.layer2(x)
-        x = self.base_model.layer3(x)
-        x = self.base_model.layer4(x)
-        x = self.base_model.bn2(x)
-        x = self.base_model.avgpool(x)  # Output shape (batch_size, 512, 1, 1)
-        x = torch.flatten(x, 1)  # Flatten to shape (batch_size, 512)
-        x = self.base_model.features(x)
-        return x
-
-# ArcFace Loss Definition
+# Using the Arcface implementation from Insightface
 class ArcFace(torch.nn.Module):
+    """ ArcFace (https://arxiv.org/pdf/1801.07698v1.pdf):
+    """
     def __init__(self, s=64.0, margin=0.5):
         super(ArcFace, self).__init__()
         self.s = s
         self.margin = margin
         self.cos_m = math.cos(margin)
         self.sin_m = math.sin(margin)
+        self.theta = math.cos(math.pi - margin)
+        self.sinmm = math.sin(math.pi - margin) * margin
+        self.easy_margin = False
 
-    def forward(self, embeddings, labels, W):
-        # Normalize embeddings and the classifier weights
-        embeddings = F.normalize(embeddings, p=2, dim=1)
-        W = F.normalize(W, p=2, dim=0)
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor):
+        #logits = torch.clamp(logits, -1.0, 1.0)
+        index = torch.where(labels != -1)[0]
+        target_logit = logits[index, labels[index].view(-1)]
 
-        # Transpose W to align dimensions for matrix multiplication
-        cosine = torch.matmul(embeddings, W.t())
+        with torch.no_grad():
+            target_logit.arccos_()
+            logits.arccos_()
+            final_target_logit = target_logit + self.margin
+            logits[index, labels[index].view(-1)] = final_target_logit
+            logits.cos_()
 
-        # Compute sine and phi for ArcFace margin
-        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
-        phi = cosine * self.cos_m - sine * self.sin_m
-
-        # Apply margin for the target class
-        one_hot = torch.zeros_like(cosine)
-        one_hot.scatter_(1, labels.view(-1, 1), 1)
-        logits = one_hot * phi + (1.0 - one_hot) * cosine
-        logits *= self.s
+        logits = logits * self.s   
         return logits
-
 
 # Utilities
 def get_accuracy(preds, y):
@@ -100,25 +77,19 @@ def load_data(train_folder, test_folder, batch_size, num_workers):
 
 def initialize_model(num_classes, learning_rate, use_arcface):
     """
-    Initializes the model, optimizer, loss function, and optionally the scheduler.
+    Initializes the model, optimizer, loss function, etc.
     """
     if use_arcface:
-        model = IResNetModified()
+        model = iresnet18(pretrained=False, progress=True) 
         # Add classifier weight matrix W for ArcFace
         model.classifier = nn.Linear(512, num_classes, bias=False)
         loss_fn = ArcFace(s=64.0, margin=0.5)
     else:
         model = iresnet18(pretrained=False, progress=True, num_features = num_classes)
-        model.fc = nn.Linear(model.fc.in_features, num_classes)
         loss_fn = nn.CrossEntropyLoss()
 
     # Optimizer setup
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Scheduler setup (only for ArcFace)
-    scheduler = None
-    if use_arcface:
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     # Device setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -126,7 +97,7 @@ def initialize_model(num_classes, learning_rate, use_arcface):
     loss_fn = loss_fn.to(device)
 
     print(f"Initialized model with {'ArcFace' if use_arcface else 'CrossEntropy'} loss")
-    return model, optimizer, scheduler, loss_fn, device
+    return model, optimizer, loss_fn, device
 
 def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface):
     model.train()
@@ -139,20 +110,27 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_
         # Forward pass
         embeddings = model(X)  # Always compute embeddings
         if use_arcface:
-            W = model.classifier.weight  # Only for ArcFace
-            logits = loss_fn(embeddings, y, W)
-            loss = nn.CrossEntropyLoss()(logits, y)  # ArcFace requires CrossEntropy on logits
+            # Normalize embeddings and classifier weights
+            embeddings = F.normalize(embeddings, p=2, dim=1)
+            model.classifier.weight.data = F.normalize(model.classifier.weight.data, p=2, dim=1)
+            # Compute logits
+            logits = F.linear(embeddings, model.classifier.weight)
+            # Clamp logits to avoid out-of-bound values
+            logits = torch.clamp(logits, -1.0, 1.0)
+            # Use arcface loss adjustements
+            logits = loss_fn(logits, y)
+            loss = nn.CrossEntropyLoss()(logits, y)
         else:
             logits = embeddings  # Direct logits for CrossEntropy
             loss = loss_fn(logits, y)
 
         # Backward and optimize
         loss.backward()
+
+        # Apply gradient clipping to stabilize training (use if needed)
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         
-        # Just to try gradient clipping, if needed
-        # if use_arcface:
-        #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 
-        # optimizer.step()
+        optimizer.step()
 
         # Compute accuracy
         accuracy = get_accuracy(logits, y)
@@ -177,9 +155,11 @@ def evaluate_model(model, test_loader, loss_fn, device, use_arcface):
             # Forward pass
             embeddings = model(X_test)  # Always compute embeddings
             if use_arcface:
-                W = model.classifier.weight  # Only for ArcFace
-                logits = loss_fn(embeddings, y_test, W)
-                loss_test = nn.CrossEntropyLoss()(logits, y_test)  # ArcFace requires CrossEntropy on logits
+                logits = F.linear(embeddings, model.classifier.weight)  # Compute logits
+                logits = loss_fn(logits, y_test)  # Apply ArcFace adjustments
+
+                # Compute CrossEntropy loss
+                loss_test = nn.CrossEntropyLoss()(logits, y_test)
             else:
                 logits = embeddings  # Direct logits for CrossEntropy
                 loss_test = loss_fn(logits, y_test)
@@ -208,7 +188,7 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
     """
     datestring = make_checkpoint_dir()
     train_loader, test_loader, num_classes = load_data(train_folder, test_folder, batch_size, num_workers)
-    model, optimizer, scheduler, loss_fn, device = initialize_model(num_classes, learning_rate, use_arcface)
+    model, optimizer, loss_fn, device = initialize_model(num_classes, learning_rate, use_arcface)
 
     train_loss, train_accuracy, test_loss, test_accuracy = [], [], [], []
 
@@ -217,11 +197,6 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
         avg_train_loss, avg_train_accuracy = train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface)
         train_loss.append(avg_train_loss)
         train_accuracy.append(avg_train_accuracy)
-
-        # Step the scheduler only if it is used
-        if scheduler:
-            scheduler.step()
-            print(f"Learning Rate after Epoch {epoch}: {scheduler.get_last_lr()}")
 
         if epoch % checkpoint_interval == 0:
             checkpoint_path = f'{datestring}/checkpoint_epoch_{epoch}.pt'
@@ -247,7 +222,7 @@ def main():
     train_and_save_model(
         num_epochs=100,
         batch_size=64,
-        learning_rate=0.0001,
+        learning_rate=0.001,
         num_workers=4,
         checkpoint_interval=1,
         test_interval=2,
