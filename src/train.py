@@ -100,14 +100,13 @@ def load_data(train_folder, test_folder, batch_size, num_workers):
 
 def initialize_model(num_classes, learning_rate, use_arcface):
     """
-    Initializes the ResNet18 model with ArcFace for the specified number of 
-    output classes, along with the Adam optimizer.
+    Initializes the model, optimizer, loss function, and optionally the scheduler.
     """
     if use_arcface:
-        model = IResNetModified()  
+        model = IResNetModified()
         # Add classifier weight matrix W for ArcFace
         model.classifier = nn.Linear(512, num_classes, bias=False)
-        loss_fn = ArcFace(s=64.0, margin=0.5) 
+        loss_fn = ArcFace(s=64.0, margin=0.5)
     else:
         model = iresnet18(pretrained=False, progress=True, num_features = num_classes)
         model.fc = nn.Linear(model.fc.in_features, num_classes)
@@ -116,13 +115,18 @@ def initialize_model(num_classes, learning_rate, use_arcface):
     # Optimizer setup
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Scheduler setup (only for ArcFace)
+    scheduler = None
+    if use_arcface:
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
     # Device setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
     loss_fn = loss_fn.to(device)
 
     print(f"Initialized model with {'ArcFace' if use_arcface else 'CrossEntropy'} loss")
-    return model, optimizer, loss_fn, device
+    return model, optimizer, scheduler, loss_fn, device
 
 def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface):
     model.train()
@@ -133,9 +137,9 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_
         optimizer.zero_grad()
 
         # Forward pass
-        embeddings = model(X) 
+        embeddings = model(X)  # Always compute embeddings
         if use_arcface:
-            W = model.classifier.weight  
+            W = model.classifier.weight  # Only for ArcFace
             logits = loss_fn(embeddings, y, W)
             loss = nn.CrossEntropyLoss()(logits, y)  # ArcFace requires CrossEntropy on logits
         else:
@@ -144,7 +148,11 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_
 
         # Backward and optimize
         loss.backward()
-        optimizer.step()
+        
+        # Just to try gradient clipping, if needed
+        # if use_arcface:
+        #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0) 
+        # optimizer.step()
 
         # Compute accuracy
         accuracy = get_accuracy(logits, y)
@@ -195,9 +203,12 @@ def make_checkpoint_dir():
 
 # Main Training Loop
 def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, checkpoint_interval, test_interval, train_folder, test_folder, use_arcface):
+    """
+    Main training loop with optional learning rate scheduler for ArcFace.
+    """
     datestring = make_checkpoint_dir()
     train_loader, test_loader, num_classes = load_data(train_folder, test_folder, batch_size, num_workers)
-    model, optimizer, loss_fn, device = initialize_model(num_classes, learning_rate, use_arcface)
+    model, optimizer, scheduler, loss_fn, device = initialize_model(num_classes, learning_rate, use_arcface)
 
     train_loss, train_accuracy, test_loss, test_accuracy = [], [], [], []
 
@@ -206,6 +217,11 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
         avg_train_loss, avg_train_accuracy = train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface)
         train_loss.append(avg_train_loss)
         train_accuracy.append(avg_train_accuracy)
+
+        # Step the scheduler only if it is used
+        if scheduler:
+            scheduler.step()
+            print(f"Learning Rate after Epoch {epoch}: {scheduler.get_last_lr()}")
 
         if epoch % checkpoint_interval == 0:
             checkpoint_path = f'{datestring}/checkpoint_epoch_{epoch}.pt'
@@ -221,7 +237,7 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
     checkpoint_path = f'{datestring}/final_model.pt'
     torch.save(model.state_dict(), checkpoint_path)
     print('Final model saved as "final_model.pt"')
-
+    
 def main():
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(os.path.dirname(abspath))
@@ -231,7 +247,7 @@ def main():
     train_and_save_model(
         num_epochs=100,
         batch_size=64,
-        learning_rate=0.001,
+        learning_rate=0.0001,
         num_workers=4,
         checkpoint_interval=1,
         test_interval=2,
