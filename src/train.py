@@ -50,7 +50,7 @@ def initialize_model(num_classes, learning_rate):
     Initializes the ResNet18 model with ArcFace for the specified number of 
     output classes, along with the Adam optimizer.
     """
-    model =  iresnet18(pretrained=False, progress=True,) 
+    model =  iresnet18(pretrained=False, progress=True,num_features = num_classes) 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
@@ -77,7 +77,7 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device):
 
         # Forward pass
         optimizer.zero_grad()
-        train_preds = model(X)
+        train_preds, embedding = model(X)
         loss = loss_fn(train_preds, y)
 
         
@@ -113,7 +113,7 @@ def evaluate_model(model, test_loader, loss_fn, device):
         for X_test, y_test in test_loader:
             X_test, y_test = X_test.to(device), y_test.to(device)
 
-            test_preds = model(X_test)
+            test_preds, embedding = model(X_test)
             loss_test = loss_fn(test_preds, y_test)
 
             accuracy_test = get_accuracy(test_preds, y_test)
@@ -174,11 +174,11 @@ def main():
         num_epochs=100, 
         batch_size=64, 
         learning_rate=0.001, 
-        num_workers=4, 
+        num_workers=12, 
         checkpoint_interval=1, 
-        test_interval=2, 
+        test_interval=1, 
         train_folder='data/imgs_subset/train', 
-        test_folder='data/imgs_subset/train'
+        test_folder='data/imgs_subset/test'
     )
 
 if __name__ == "__main__":
