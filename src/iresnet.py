@@ -65,7 +65,7 @@ class IBasicBlock(nn.Module):
 
 
 class IResNet(nn.Module):
-    fc_scale = 7 * 7
+    fc_scale = 1
     def __init__(self,
                  block, layers, dropout=0, num_features=512, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None, fp16=False):
@@ -81,7 +81,7 @@ class IResNet(nn.Module):
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(self.inplanes, eps=1e-05)
         self.prelu = nn.PReLU(self.inplanes)
         self.layer1 = self._make_layer(block, 64, layers[0], stride=2)
@@ -100,6 +100,7 @@ class IResNet(nn.Module):
                                        layers[3],
                                        stride=2,
                                        dilate=replace_stride_with_dilation[2])
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.bn2 = nn.BatchNorm2d(512 * block.expansion, eps=1e-05,)
         self.dropout = nn.Dropout(p=dropout, inplace=True)
         self.fc = nn.Linear(512 * block.expansion * self.fc_scale, num_features)
@@ -146,7 +147,7 @@ class IResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        with torch.cuda.amp.autocast(self.fp16):
+        with torch.amp.autocast('cuda', enabled=self.fp16):
             x = self.conv1(x)
             x = self.bn1(x)
             x = self.prelu(x)
@@ -154,12 +155,14 @@ class IResNet(nn.Module):
             x = self.layer2(x)
             x = self.layer3(x)
             x = self.layer4(x)
+            x = self.avgpool(x)
+            embedding = torch.flatten(x,1)
             x = self.bn2(x)
             x = torch.flatten(x, 1)
             x = self.dropout(x)
         x = self.fc(x.float() if self.fp16 else x)
         x = self.features(x)
-        return x
+        return x, embedding
 
 
 def _iresnet(arch, block, layers, pretrained, progress, **kwargs):
