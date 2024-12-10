@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch import distributed
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from datetime import datetime
@@ -9,6 +10,49 @@ from pathlib import Path
 from iresnet import iresnet18
 from losses import ArcFace
 from partial_fc_v2 import PartialFC_V2
+
+from easydict import EasyDict as edict
+
+# make training faster
+# our RAM is 256G
+# mount -t tmpfs -o size=140G  tmpfs /train_tmp
+
+config = edict()
+config.margin_list = (1.0, 0.5, 0.0)
+config.network = "r50"
+config.resume = False
+config.output = None
+config.embedding_size = 512
+config.sample_rate = 1.0
+config.fp16 = True
+config.momentum = 0.9
+config.weight_decay = 5e-4
+config.batch_size = 128
+config.lr = 0.1
+config.verbose = 2000
+config.dali = False
+
+config.rec = "/train_tmp/faces_emore"
+config.num_classes = 85742
+config.num_image = 5822653
+config.num_epoch = 20
+config.warmup_epoch = 0
+config.val_targets = ['lfw', 'cfp_fp', "agedb_30"]
+try:
+    rank = int(os.environ["RANK"])
+    local_rank = int(os.environ["LOCAL_RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    distributed.init_process_group("nccl")
+except KeyError:
+    rank = 0
+    local_rank = 0
+    world_size = 1
+    distributed.init_process_group(
+        backend="nccl",
+        init_method="tcp://127.0.0.1:12584",
+        rank=rank,
+        world_size=world_size,
+    )
 
 def get_accuracy(preds, y):
     """
@@ -54,14 +98,18 @@ def initialize_model(num_classes, learning_rate):
     """
     model =  iresnet18(pretrained=False, progress=True,num_features = num_classes) 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    loss_fn = nn.CrossEntropyLoss()
-
+    loss_fn = ArcFace()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
     loss_fn = loss_fn.to(device)
-    
+    model = torch.nn.parallel.DistributedDataParallel(
+        module=model, broadcast_buffers=False, device_ids=[local_rank], bucket_cap_mb=16,
+        find_unused_parameters=True)
+    # model.register_comm_hook(None, fp16_compress_hook)
+    partial_fc = PartialFC_V2(loss_fn, 512, num_classes, sample_rate=0.2).to(device)
+
     print("Initiated Arcface model")
-    return model, optimizer, loss_fn, device
+    return model, optimizer, partial_fc, device
 
 def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device):
 
@@ -72,15 +120,20 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device):
     accuracy for each batch. It returns the average loss and accuracy over the entire epoch.
     """
     model.train()
+    loss_fn.train()
     epoch_train_loss, epoch_train_acc = 0.0, 0.0
 
     for batch_idx, (X, y) in enumerate(train_loader):
         X, y = X.to(device), y.to(device)
+        if X.shape[0] != 64:
+            continue
+        # print(X.shape)
 
         # Forward pass
         optimizer.zero_grad()
         train_preds, embedding = model(X)
-        loss = loss_fn(train_preds, y)
+        # loss = loss_fn(train_preds, y)
+        loss: torch.Tensor = loss_fn(embedding, y)
 
         
         loss.backward()
@@ -113,11 +166,15 @@ def evaluate_model(model, test_loader, loss_fn, device):
 
     with torch.no_grad():
         for X_test, y_test in test_loader:
+            if X_test.shape[0] != 64:
+                continue
+
             X_test, y_test = X_test.to(device), y_test.to(device)
 
             test_preds, embedding = model(X_test)
-            loss_test = loss_fn(test_preds, y_test)
+            # loss_test = loss_fn(test_preds, y_test)
 
+            loss_test: torch.Tensor = loss_fn(embedding, y_test)
             accuracy_test = get_accuracy(test_preds, y_test)
 
             epoch_test_loss += loss_test.item() * X_test.size(0)
