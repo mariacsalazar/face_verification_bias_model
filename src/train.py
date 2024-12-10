@@ -9,11 +9,13 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 from pathlib import Path
 from iresnet import iresnet18
+from torch.optim.lr_scheduler import StepLR  
 
 # Using the Arcface implementation from Insightface
 class ArcFace(torch.nn.Module):
     """ ArcFace (https://arxiv.org/pdf/1801.07698v1.pdf):
     """
+    # default m=0.5
     def __init__(self, s=64.0, margin=0.5):
         super(ArcFace, self).__init__()
         self.s = s
@@ -43,7 +45,6 @@ class ArcFace(torch.nn.Module):
 def get_accuracy(preds, y):
     """
     Compute the accuracy
-
     """
     m = y.shape[0]
     hard_preds = torch.argmax(preds, dim=1)
@@ -108,9 +109,9 @@ def train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_
         optimizer.zero_grad()
 
         # Forward pass
-        embeddings = model(X)  # Always compute embeddings
+        embeddings, _  = model(X)  # Always compute embeddings
         if use_arcface:
-            # Normalize embeddings and classifier weights
+            # Normalize embeddings and classifier weights (have L2 norm and 1 dimension)
             embeddings = F.normalize(embeddings, p=2, dim=1)
             model.classifier.weight.data = F.normalize(model.classifier.weight.data, p=2, dim=1)
             # Compute logits
@@ -153,7 +154,7 @@ def evaluate_model(model, test_loader, loss_fn, device, use_arcface):
             X_test, y_test = X_test.to(device), y_test.to(device)
 
             # Forward pass
-            embeddings = model(X_test)  # Always compute embeddings
+            embeddings, _ = model(X_test)  # Always compute embeddings
             if use_arcface:
                 logits = F.linear(embeddings, model.classifier.weight)  # Compute logits
                 logits = loss_fn(logits, y_test)  # Apply ArcFace adjustments
@@ -184,7 +185,7 @@ def make_checkpoint_dir():
 # Main Training Loop
 def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, checkpoint_interval, test_interval, train_folder, test_folder, use_arcface):
     """
-    Main training loop with optional learning rate scheduler for ArcFace.
+    Main training loop with an optional learning rate scheduler for ArcFace.
     """
     datestring = make_checkpoint_dir()
     train_loader, test_loader, num_classes = load_data(train_folder, test_folder, batch_size, num_workers)
@@ -192,27 +193,33 @@ def train_and_save_model(num_epochs, batch_size, learning_rate, num_workers, che
 
     train_loss, train_accuracy, test_loss, test_accuracy = [], [], [], []
 
+
     for epoch in range(1, num_epochs + 1):
         print(f"\n--- Epoch {epoch}/{num_epochs} ---")
+                
+        # Train for one epoch
         avg_train_loss, avg_train_accuracy = train_one_epoch(epoch, model, train_loader, optimizer, loss_fn, device, use_arcface)
         train_loss.append(avg_train_loss)
         train_accuracy.append(avg_train_accuracy)
 
+        # Save checkpoints
         if epoch % checkpoint_interval == 0:
             checkpoint_path = f'{datestring}/checkpoint_epoch_{epoch}.pt'
             torch.save(model.state_dict(), checkpoint_path)
             print(f'Checkpoint saved as {checkpoint_path}')
 
+        # Evaluate on the test set
         if epoch % test_interval == 0 or epoch == num_epochs:
             avg_test_loss, avg_test_accuracy = evaluate_model(model, test_loader, loss_fn, device, use_arcface)
             test_loss.append(avg_test_loss)
             test_accuracy.append(avg_test_accuracy)
             print(f'Test Loss: {avg_test_loss:.4f}, Test Accuracy: {avg_test_accuracy:.4f}')
 
+    # Save the final model
     checkpoint_path = f'{datestring}/final_model.pt'
     torch.save(model.state_dict(), checkpoint_path)
     print('Final model saved as "final_model.pt"')
-    
+
 def main():
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(os.path.dirname(abspath))
@@ -222,7 +229,7 @@ def main():
     train_and_save_model(
         num_epochs=100,
         batch_size=64,
-        learning_rate=0.001,
+        learning_rate=0.25,
         num_workers=4,
         checkpoint_interval=1,
         test_interval=2,
