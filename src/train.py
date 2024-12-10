@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 from pathlib import Path
 from iresnet import iresnet18
+from losses import ArcFace
+from partial_fc_v2 import PartialFC_V2
 
 def get_accuracy(preds, y):
     """
