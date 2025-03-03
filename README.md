@@ -1,4 +1,4 @@
-#+title: Bias Model for Face Verification (FV)
+##  Bias Model for Face Verification (FV)
 
 A Big data research project to add bias data in FV to improve accuracy.
 
