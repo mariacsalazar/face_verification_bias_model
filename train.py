@@ -52,26 +52,53 @@ def load_data(opt):
     test_loader = DataLoader(test_dataset, batch_size=opt.test_batch_size, shuffle=False, num_workers=opt.num_workers)
     return train_loader, test_loader
 
-def set_seed(seed=42):
+# def set_seed(seed=42): #NVIDIA
+#     # Python's built-in random module
+#     random.seed(seed)
+#     # Numpy's random module
+#     np.random.seed(seed)
+#     # PyTorch seed for CPU
+#     torch.manual_seed(seed)
+#     # PyTorch seed for all GPU devices (if using CUDA)
+#     torch.cuda.manual_seed_all(seed)
+#     # Make sure to disable CuDNN's non-deterministic optimizations
+#     torch.backends.cudnn.deterministic = True
+#     torch.backends.cudnn.benchmark = False
+
+def set_seed(seed=42): #Mac
     # Python's built-in random module
     random.seed(seed)
     # Numpy's random module
     np.random.seed(seed)
     # PyTorch seed for CPU
     torch.manual_seed(seed)
-    # PyTorch seed for all GPU devices (if using CUDA)
-    torch.cuda.manual_seed_all(seed)
-    # Make sure to disable CuDNN's non-deterministic optimizations
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    
+    # If you are using MAC silicon
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed)
+    # To keep working with NVIDIA but have to be confirmed
+    elif torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
+
+def get_device():
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Usando GPU (MPS)")
+    else:
+        device = torch.device("cpu")
+        print("Usando CPU")
+    return device
 if __name__ == '__main__':
     set_seed()
 
     opt = Config()
     if opt.display:
         visualizer = Visualizer()
-    device = torch.device("cuda")
+    device = get_device()
+    # device = torch.device("cuda") #NVIDIA but get_device should work for both
     
     trainloader, testloader = load_data(opt)
 

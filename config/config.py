@@ -2,8 +2,8 @@ class Config(object):
     env = 'default'
     backbone = 'resnet18'
     classify = 'softmax'
-    num_classes = 10572
-    metric = 'bias'
+    num_classes = 2000
+    metric = 'arc_margin'
     easy_margin = False
     use_se = False
     loss = 'cross_entropy'
@@ -12,18 +12,17 @@ class Config(object):
     finetune = False
 
     # /home/mathos/Documents/cs/bdrp/repos/arcface-pytorch
-    
-    train_root = '/kaggle/input/imgs-subset/imgs'
-    train_list = '/kaggle/working/ArcFace/lfw_test_pair.txt'
-    val_list = '/kaggle/working/ArcFace/lfw_test_pair.txt'
+    train_root = './data/imgs_subset_2000/train/'
+    train_list = './lfw_test_pair.txt'
+    val_list = './lfw_test_pair.txt'
 
-    test_root = '/kaggle/input/dataset2/imgs_subset_2000/test'
-    test_list = '/kaggle/working/ArcFace/lfw_test_pair.txt'
+    test_root = './data/imgs_subset_2000/test'
+    test_list = './lfw_test_pair.txt'
 
-    lfw_root = '/kaggle/input/dataset2/imgs_subset_2000'
-    lfw_test_list = '/kaggle/working/ArcFace/lfw_test_pair.txt'
+    lfw_root = './data/imgs_subset/'
+    lfw_test_list = './lfw_test_pair.txt'
 
-    checkpoints_path = '/kaggle/working/ArcFace/checkpoints/'
+    checkpoints_path = 'checkpoints'
     # load_model_path = 'models/resnet18.pth'
     # test_model_path = 'checkpoints/resnet18_110.pth'
     save_interval = 1
@@ -33,7 +32,7 @@ class Config(object):
 
     input_shape = (3, 112, 112)
 
-    optimizer = 'sgd'
+    optimizer = 'adam'
 
     use_gpu = True  # use GPU or not
     gpu_id = '0, 1'
@@ -44,11 +43,8 @@ class Config(object):
     result_file = 'result.csv'
 
     max_epoch = 100
-    lr = 0.01  # initial learning rate
+    lr = 5e-4  # initial learning rate
     lr_step = 5000
     lr_decay = 0.95  # when val_loss increase, lr = lr*lr_decay
-    weight_decay = 5e-3
-    momentum=0.9
-
-    bias_model_lambda = 0.01
-    num_bias_embedding = 409 # Size of the embedding used for bias prediction
+    weight_decay = 5e-4
+    momentum=0.4
